@@ -15,6 +15,13 @@ import { config } from 'dotenv';
 // 환경 변수 로드
 config({ path: '.env.local' });
 
+// 환경 변수 검증
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    'DATABASE_URL is not set. Please check your .env.local file.'
+  );
+}
+
 export default {
   // 데이터베이스 방언 설정 (PostgreSQL)
   dialect: 'postgresql',
@@ -27,7 +34,7 @@ export default {
 
   // 데이터베이스 연결 정보
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    url: process.env.DATABASE_URL,
   },
 
   // 개발 환경 설정

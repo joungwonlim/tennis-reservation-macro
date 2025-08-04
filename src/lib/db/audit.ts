@@ -11,7 +11,8 @@
 
 import { db } from './index';
 import { auditLogs, type NewAuditLog } from './schema';
-import { eq } from 'drizzle-orm';
+import { eq, lt, count } from 'drizzle-orm';
+import isEqual from 'fast-deep-equal';
 
 /**
  * 감사 로그 컨텍스트 인터페이스
@@ -53,7 +54,7 @@ export async function createAuditLog(
     let changedFields: string[] | null = null;
     if (operation === 'UPDATE' && oldValues && newValues) {
       changedFields = Object.keys(newValues).filter(
-        key => JSON.stringify(oldValues[key]) !== JSON.stringify(newValues[key])
+        key => !isEqual(oldValues[key], newValues[key])
       );
     }
 
@@ -180,7 +181,7 @@ export async function getAuditStatistics(startDate: Date, endDate: Date) {
       .select({
         tableName: auditLogs.tableName,
         operation: auditLogs.operation,
-        count: 'COUNT(*)',
+        count: count(),
       })
       .from(auditLogs)
       .where(auditLogs.createdAt >= startDate && auditLogs.createdAt <= endDate)
@@ -200,20 +201,18 @@ export async function getAuditStatistics(startDate: Date, endDate: Date) {
  * @param retentionDays 보존 기간 (일)
  * @returns 삭제된 로그 수
  */
-export async function cleanupAuditLogs(retentionDays: number): Promise<number> {
+export async function cleanupAuditLogs(retentionDays: number): Promise<void> {
   try {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-    const result = await db
-      .delete(auditLogs)
-      .where(auditLogs.createdAt < cutoffDate);
+    await db.delete(auditLogs).where(lt(auditLogs.createdAt, cutoffDate));
 
-    console.log(`✅ 감사 로그 정리 완료: ${result.rowCount}개 로그 삭제`);
-    return result.rowCount || 0;
+    console.log(
+      `✅ 감사 로그 정리 완료: ${cutoffDate.toISOString()} 이전 로그 삭제`
+    );
   } catch (error) {
     console.error('❌ 감사 로그 정리 실패:', error);
-    return 0;
   }
 }
 

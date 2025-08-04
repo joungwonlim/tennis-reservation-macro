@@ -23,8 +23,57 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  pgEnum,
 } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
+
+/**
+ * PostgreSQL Enum 타입 정의
+ * 데이터 무결성과 타입 안전성을 위한 열거형 타입들
+ */
+
+// 사용자 역할 enum
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
+
+// 예약 상태 enum
+export const reservationStatusEnum = pgEnum('reservation_status', [
+  'pending',
+  'success',
+  'failed',
+  'cancelled',
+  'timeout',
+]);
+
+// 시스템 설정 카테고리 enum
+export const systemSettingsCategoryEnum = pgEnum('system_settings_category', [
+  'general',
+  'macro',
+  'notification',
+  'security',
+]);
+
+// 감사 로그 작업 타입 enum
+export const auditOperationEnum = pgEnum('audit_operation', [
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+]);
+
+// 알림 타입 enum
+export const notificationTypeEnum = pgEnum('notification_type', [
+  'info',
+  'warning',
+  'error',
+  'success',
+]);
+
+// 감사 로그 소스 enum
+export const auditSourceEnum = pgEnum('audit_source', [
+  'web',
+  'api',
+  'system',
+  'migration',
+]);
 
 /**
  * 사용자 테이블
@@ -39,10 +88,13 @@ export const users = pgTable(
     email: text('email').notNull().unique(),
     name: text('name'),
     password: text('password').notNull(), // bcrypt 해시된 비밀번호
-    role: text('role').notNull().default('user'), // 'user' | 'admin'
+    role: userRoleEnum('role').notNull().default('user'), // 'user' | 'admin'
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 이메일 기반 고유 인덱스 (로그인용)
@@ -70,7 +122,10 @@ export const tennisAccounts = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at'), // 마지막 로그인 시간
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 사용자당 하나의 테니스장 계정만 허용
@@ -101,7 +156,10 @@ export const reservations = pgTable(
     maxRetries: integer('max_retries').notNull().default(3), // 최대 재시도 횟수
     retryInterval: integer('retry_interval').notNull().default(5), // 재시도 간격 (분)
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 사용자별 예약 조회 최적화
@@ -135,7 +193,7 @@ export const reservationLogs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     executedAt: timestamp('executed_at').notNull().defaultNow(), // 실행 시간
-    status: text('status').notNull(), // "pending", "success", "failed", "cancelled", "timeout"
+    status: reservationStatusEnum('status').notNull(), // "pending", "success", "failed", "cancelled", "timeout"
     message: text('message'), // 성공/실패 메시지
     errorDetails: jsonb('error_details'), // 오류 상세 정보 (스택 트레이스 등)
     executionTime: integer('execution_time'), // 실행 시간 (밀리초)
@@ -188,7 +246,10 @@ export const notificationSettings = pgTable(
     notifyOnSchedule: boolean('notify_on_schedule').notNull().default(false), // 예약 시간 전 알림
     scheduleNotifyMinutes: integer('schedule_notify_minutes').default(30), // 몇 분 전에 알림
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 사용자당 하나의 알림 설정만 허용
@@ -211,9 +272,14 @@ export const systemSettings = pgTable(
     key: text('key').notNull().unique(), // 설정 키
     value: text('value').notNull(), // 설정 값
     description: text('description'), // 설정 설명
-    category: text('category').notNull().default('general'), // 'general', 'macro', 'notification', 'security'
+    category: systemSettingsCategoryEnum('category')
+      .notNull()
+      .default('general'), // 'general', 'macro', 'notification', 'security'
     isPublic: boolean('is_public').notNull().default(false), // 클라이언트에서 접근 가능한지
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 설정 키 기반 고유 인덱스
@@ -247,7 +313,10 @@ export const dailyStats = pgTable(
     averageExecutionTime: integer('average_execution_time'), // 평균 실행 시간 (밀리초)
     peakHour: integer('peak_hour'), // 피크 시간대 (0-23)
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 날짜별 고유 인덱스 (하루에 하나의 통계만)
@@ -299,7 +368,7 @@ export const systemNotifications = pgTable(
       .$defaultFn(() => createId()),
     title: text('title').notNull(), // 알림 제목
     message: text('message').notNull(), // 알림 내용
-    type: text('type').notNull(), // 'info', 'warning', 'error', 'success'
+    type: notificationTypeEnum('type').notNull(), // 'info', 'warning', 'error', 'success'
     targetUsers: jsonb('target_users'), // 특정 사용자 대상 (null이면 전체)
     isRead: boolean('is_read').notNull().default(false), // 읽음 여부
     isActive: boolean('is_active').notNull().default(true), // 활성화 상태
@@ -338,7 +407,7 @@ export const auditLogs = pgTable(
     // 작업 정보
     tableName: text('table_name').notNull(), // 변경된 테이블명 (예: 'users', 'reservations')
     recordId: text('record_id').notNull(), // 변경된 레코드의 ID
-    operation: text('operation').notNull(), // 'INSERT', 'UPDATE', 'DELETE'
+    operation: auditOperationEnum('operation').notNull(), // 'INSERT', 'UPDATE', 'DELETE'
 
     // 사용자 정보
     userId: text('user_id').references(() => users.id, {
@@ -360,7 +429,7 @@ export const auditLogs = pgTable(
 
     // 추가 정보
     reason: text('reason'), // 변경 사유 (선택적)
-    source: text('source').notNull().default('web'), // 'web', 'api', 'system', 'migration'
+    source: auditSourceEnum('source').notNull().default('web'), // 'web', 'api', 'system', 'migration'
 
     // 시간 정보
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -407,7 +476,10 @@ export const dataRetentionPolicies = pgTable(
     isActive: boolean('is_active').notNull().default(true), // 정책 활성화 상태
     lastCleanupAt: timestamp('last_cleanup_at'), // 마지막 정리 실행 시간
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   table => ({
     // 테이블명 기반 고유 인덱스
